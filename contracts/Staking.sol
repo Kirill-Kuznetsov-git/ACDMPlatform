@@ -2,14 +2,15 @@
 pragma solidity ^0.8.0;
 
 import "./ERC20/InterfaceERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract Stacking {
+contract Staking {
     InterfaceERC20 public lpToken;
     InterfaceERC20 public rewardToken;
     uint public timeFreezing = 10 minutes;
     uint public timeReward = 7 days;
     uint public procent = 3;
-    mapping(address => mapping(uint => StackIndexed)) private stacks;
+    mapping(address => mapping(uint => StakeIndexed)) private stakes;
     
     // Two indexes
     // First index is id of first stake
@@ -18,6 +19,10 @@ contract Stacking {
     
     address private owner;
     mapping(address => bool) public isDAO;
+
+    event Rewarded(address account, uint256 amount);
+    event Staked(uint256 stakeId, address account, uint256 amount, string token);
+    event Unstaked(uint256 stakeId, address account, uint256 amount, string token);
 
     modifier onlyOwner(){
         require(msg.sender == owner, "not an owner");
@@ -29,13 +34,13 @@ contract Stacking {
         _;
     }
 
-    struct StackIndexed{
-        Stack stack;
-        uint256 idPreviousStack;
-        uint256 idNextStack;
+    struct StakeIndexed{
+        Stake stake;
+        uint256 idPreviousStake;
+        uint256 idNextStake;
     }
 
-    struct Stack {
+    struct Stake {
         uint256 startAt;
         uint256 endAt;
         uint256 amount;
@@ -50,53 +55,92 @@ contract Stacking {
         owner = msg.sender;
     }
 
-    function stake(uint256 amount) public {
-        lpToken.transferFrom(msg.sender, address(this), amount);
-        stake(amount, "XXX");
+    function getStake(uint256 id) view public returns(Stake) {
+        return stakes[msg.sender][id];
     }
 
-    function stake() public payable {
+    function getStakes() view public returns(mapping(uint => Stake)) {
+        return stakes[msg.sender];
+    }
+
+    function stake(uint256 amount) public returns(uint256) {
+        require(amount > 0, "not enough funds");
+        SafeERC20.safeTransferFrom(lpToken, msg.sender, address(this), amount);
+        stake(amount, "XXX");
+        return indexes[msg.sender][1];
+    }
+
+    function stake() public payable returns(uint256) {
+        require(msg.value > 0, "not enough funds");
         stake(msg.value, "ETH");
+        return indexes[msg.sender][1];
     }
 
     function stake(uint256 amount, string memory token) internal {
-        Stack memory newStack = Stack(block.timestamp, block.timestamp + timeFreezing, amount, 0, token);
-        StackIndexed memory newStackIndexed = StackIndexed(newStack, indexes[msg.sender][1], 0);
-        if (indexes[msg.sender][0] == 0 && indexes[msg.sender][0] == 1) {
+        Stake memory newStake = Stake(block.timestamp, block.timestamp + timeFreezing, amount, 0, token);
+        StakeIndexed memory newStakeIndexed = StakeIndexed(newStake, indexes[msg.sender][1], 0);
+        if (indexes[msg.sender][0] == 0 && indexes[msg.sender][1] == 0) {
             indexes[msg.sender][0]++;
-            indexes[msg.sender][1]++;
-            stacks[msg.sender][indexes[msg.sender][1]] = newStackIndexed;
-        } 
-        else {
-            indexes[msg.sender][1]++;
-            stacks[msg.sender][indexes[msg.sender][1]] = newStackIndexed;
         }
+        indexes[msg.sender][1]++;
+        stakes[msg.sender][indexes[msg.sender][1]] = newStakeIndexed;
+        emit Staked(indexes[msg.sender][1], msg.sender, amount, token);
     }
 
     function claim() public {
         uint256 valueReward = 0;
         uint256 index = indexes[msg.sender][0];
         uint256 reward = 0;
-        while (index != 0 && stacks[msg.sender][index].stack.startAt + timeFreezing <= block.timestamp) {
-            reward = stacks[msg.sender][index].stack.amount * procent * ((block.timestamp - stacks[msg.sender][index].stack.startAt) / timeReward) / 100;
+        while (index != 0 && stakes[msg.sender][index].stake.endAt <= block.timestamp) {
+            reward = stakes[msg.sender][index].stake.amount * procent * ((block.timestamp - stakes[msg.sender][index].stake.startAt) / timeReward) / 100;
             valueReward += reward;
-            valueReward -= stacks[msg.sender][index].stack.alreadyReturned;
-            stacks[msg.sender][index].stack.alreadyReturned = reward;
-            index = stacks[msg.sender][index].idNextStack;
+            valueReward -= stakes[msg.sender][index].stake.alreadyReturned;
+            stakes[msg.sender][index].stake.alreadyReturned = reward;
+            index = stakes[msg.sender][index].idNextStake;
         }
-        rewardToken.transfer(msg.sender, valueReward);
+        SafeERC20.safeTransfer(rewardToken, msg.sender, valueReward);
+        emit Rewarded(, msg.sender, valueReward);
     }
 
-    function unstake(uint256 idStack) public {
+    function unstake(uint256 idStake) public {
+        require(stakes[msg.sender][idStake].stake.amount != 0, "such stake does not exist");
+        require(stakes[msg.sender][idStake].stake.endAt <= block.timestamp, "not ended yet");
         claim();
-        stacks[msg.sender][stacks[msg.sender][idStack].idPreviousStack].idNextStack = stacks[msg.sender][idStack].idNextStack;
-        if (compareStrings(stacks[msg.sender][idStack].stack.token, "XXX")){
-            lpToken.transfer(msg.sender, stacks[msg.sender][idStack].stack.amount);
+        stakes[msg.sender][stakes[msg.sender][idStake].idPreviousStake].idNextStake = stakes[msg.sender][idStake].idNextStake;
+        stakes[msg.sender][stakes[msg.sender][idStake].idNextStake].idPreviousStake = stakes[msg.sender][idStake].idPreviousStake;
+        if (idStake == indexes[msg.sender][0]) {
+            indexes[msg.sender][0] = stakes[msg.sender][idStake].idNextStake;
         }
-        if (compareStrings(stacks[msg.sender][idStack].stack.token, "ETH")){
-            payable(msg.sender).transfer(stacks[msg.sender][idStack].stack.amount);
+        if (idStake == indexes[msg.sender][1]) {
+            indexes[msg.sender][1] = stakes[msg.sender][idStake].idPreviousStake;
         }
-        delete(stacks[msg.sender][idStack]);
+        if (compareStrings(stakes[msg.sender][idStake].stake.token, "XXX")){
+            SafeERC20.safeTransfer(lpToken, msg.sender, stakes[msg.sender][idStake].stake.amount);
+        }
+        if (compareStrings(stakes[msg.sender][idStake].stake.token, "ETH")){
+            payable(msg.sender).transfer(stakes[msg.sender][idStake].stake.amount);
+        }
+        emit Unstaked(idStake, msg.sender, stakes[msg.sender][idStake].amount, stakes[msg.sender][idStake].token);
+        delete(stakes[msg.sender][idStake]);
+    }
+
+    function unstakeAll() public {
+        claim();
+        uint index = indexes[msg.sender][0];
+        while (index != 0 && stakes[msg.sender][index].stake.endAt <= block.timestamp) {
+            if (compareStrings(stakes[msg.sender][idStake].stake.token, "XXX")){
+                SafeERC20.safeTransfer(lpToken, msg.sender, stakes[msg.sender][idStake].stake.amount);
+            }
+            if (compareStrings(stakes[msg.sender][idStake].stake.token, "ETH")){
+                payable(msg.sender).transfer(stakes[msg.sender][idStake].stake.amount);
+            }
+            emit Unstaked(idStake, msg.sender, stakes[msg.sender][idStake].amount, stakes[msg.sender][idStake].token);
+            index = stakes[msg.sender][index].idNextStake;
+            delete(stakes[msg.sender][idStake]);
+        }
+        if (index == 0) {
+            indexes[msg.sender][1] = 0;
+        }
     }
 
     function changeTimeFreezing(uint _timeFreezing) public onlyDAO {

@@ -2,8 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/Counters.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "./ERC20/InterfaceERC20.sol";
+import "./Staking.sol";
 
 
 contract DAOVoting {
@@ -11,21 +10,28 @@ contract DAOVoting {
     Counters.Counter private votingID;
     address private owner;
     InterfaceERC20 public token;
+    Staking public staking;
     uint256 public minimumQuorum;
     uint256 public debatingPeriodDuration;
     mapping(address => bool) public isChairMan;
     mapping(address => bool) public isDAO;
 
-    mapping(address => uint256) private balanceTotal;
+    // account address to array of ids of stakes
+    mapping(address => uint256[]) private balanceTotal;
+
+    // account address to id of last voting
     mapping(address => uint256) private lastVoting;
+
+    // account address to index which get first id stake which still was not used in balanceTotal[address]
+    mapping(address => uint256) private firstNotUsedStake; 
     
     struct Voting {
         string description;
 
+        // account address to number of votes(tokens)
         mapping(address => uint256) participants;
         uint256 totalVotes;
         uint256 positiveVotes;
-        uint256 courseVote;
 
         address recipient;
         bytes callData;
@@ -35,6 +41,7 @@ contract DAOVoting {
         bool ended;
     }
 
+    // id voting to voting
     mapping(uint256 => Voting) public votings;
 
     event VotingCreated(uint256 id, string description);
@@ -55,22 +62,27 @@ contract DAOVoting {
         _;
     }
 
-    constructor(address chairMan, InterfaceERC20 _token, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) {
+    constructor(address chairMan, InterfaceERC20 _token, Staking _staking, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) {
         owner = msg.sender;
         addChairMan(chairMan);
         addChairMan(owner);
         addDAO(address(this));
         token = _token;
+        staking = _staking;
         minimumQuorum = _minimumQuorum;
         debatingPeriodDuration = _debatingPeriodDuration;
     }
 
-    function getBalance() external view returns(uint256) {
-        return balanceTotal[msg.sender];
+    function getBalance() public view returns(uint256) {
+        uint returnValue = 0;
+        for (uint i = 0; i < balanceTotal[msg.sender].length; i++) {
+            returnValue += staking.getStake(balanceTotal[msg.sender][i]).amount;
+        }
+        return returnValue;
     }
 
     function getFrozenBalance() external view returns(uint256) {
-        if (votings[lastVoting[msg.sender]].ended) {
+        if (votings[lastVoting[msg.sender]].endAt <= block.timestamp) {
             return 0;
         }
         return votings[lastVoting[msg.sender]].participants[msg.sender];
@@ -94,8 +106,8 @@ contract DAOVoting {
 
     function deposit(uint256 funds) external {
         require(token.balanceOf(msg.sender) >= funds, "not enough funds");
-        SafeERC20.safeTransferFrom(token, msg.sender, address(this), funds);
-        balanceTotal[msg.sender] += funds;
+        uint id = staking.stake(funds);
+        balanceTotal[msg.sender].push(id);
     }
 
     function addProposal(bytes memory callData, address recipient, string memory description) external OnlyChairMan {
@@ -103,7 +115,6 @@ contract DAOVoting {
         newVoting.callData = callData;
         newVoting.recipient = recipient;
         newVoting.description = description;
-        newVoting.courseVote = 1;
         newVoting.startAt = block.timestamp;
         newVoting.endAt = block.timestamp + debatingPeriodDuration;
         emit VotingCreated(votingID.current(), description);
@@ -112,16 +123,16 @@ contract DAOVoting {
 
     function vote(uint256 votingId, bool voteValue) external {
         require(votingID.current() >= votingId, "such voting does not exist");
-        require(votings[votingId].courseVote != 0, "course vote equal to 0");
-        require((balanceTotal[msg.sender] / votings[votingId].courseVote) != 0, "you don't froze enough tokens");
+        require(getBalance(msg.sender) != 0, "you don't froze enough tokens");
         require(block.timestamp < votings[votingId].endAt, "already ended");
         require(votings[votingId].participants[msg.sender] == 0, "you already voted");
 
         lastVoting[msg.sender] = votingId;
-        votings[votingId].participants[msg.sender] = balanceTotal[msg.sender] / votings[votingId].courseVote;
-        votings[votingId].totalVotes += balanceTotal[msg.sender] / votings[votingId].courseVote;
+        firstNotUsedStake[msg.sender] = balanceTotal[msg.sender].length;
+        votings[votingId].participants[msg.sender] = getBalance(msg.sender);
+        votings[votingId].totalVotes += getBalance(msg.sender);
         if (voteValue) {
-            votings[votingId].positiveVotes += balanceTotal[msg.sender] / votings[votingId].courseVote;
+            votings[votingId].positiveVotes += getBalance(msg.sender);
         }
     }
 
@@ -145,9 +156,37 @@ contract DAOVoting {
     }
 
     function withdraw() external {
-        if (votings[lastVoting[msg.sender]].ended) {
-            lastVoting[msg.sender] = votingID.current() + 5;
+        if (voting[lastVoting[msg.sender]].endAt > block.timestamp && voting[lastVoting[msg.sender]].participants[msg.sender] < balanceTotal[msg.sender]) {
+            while (firstNotUsedStake[msg.sender] < balanceTotal[msg.sender].length) {
+                staking.unstake(balanceTotal[msg.sender][balanceTotal[msg.sender].length - 1]);
+                balanceTotal[msg.sender].pop();
+            }
         }
-        token.transfer(msg.sender, balanceTotal[msg.sender] - votings[lastVoting[msg.sender]].participants[msg.sender] * votings[lastVoting[msg.sender]].courseVote);
+        if (voting[lastVoting[msg.sender]].endAt <= block.timestamp) {
+            uint i = 0;
+            while (i < balanceTotal[msg.sender].length){
+                try staking.unstake(balanceTotal[msg.sender][i]) {
+                } catch Error(string memory reason){
+                    if (reason == "not ended yet") {
+                        break;
+                    }
+                }
+            }
+            if (i == balanceTotal[msg.sender].length - 1) {
+                delete balanceTotal[msg.sender];
+            }
+            else {
+                uint ii = 0;
+                while (i < balanceTotal[msg.sender].length){
+                    balanceTotal[msg.sender][ii] = balanceTotal[msg.sender][i];
+                    ii++;
+                    i++;
+                }
+                while (ii < balanceTotal[msg.sender].length) {
+                    balanceTotal[msg.sender][ii].pop();
+                    
+                }
+            }
+        }
     }
 }
