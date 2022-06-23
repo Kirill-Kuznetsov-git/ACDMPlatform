@@ -55,13 +55,10 @@ contract Staking {
         owner = msg.sender;
     }
 
-    function getStake(uint256 id) view public returns(Stake) {
-        return stakes[msg.sender][id];
+    function getStakeAmount(uint256 id) view public returns(uint) {
+        return stakes[msg.sender][id].stake.amount;
     }
 
-    function getStakes() view public returns(mapping(uint => Stake)) {
-        return stakes[msg.sender];
-    }
 
     function stake(uint256 amount) public returns(uint256) {
         require(amount > 0, "not enough funds");
@@ -99,7 +96,7 @@ contract Staking {
             index = stakes[msg.sender][index].idNextStake;
         }
         SafeERC20.safeTransfer(rewardToken, msg.sender, valueReward);
-        emit Rewarded(, msg.sender, valueReward);
+        emit Rewarded(msg.sender, valueReward);
     }
 
     function unstake(uint256 idStake) public {
@@ -120,27 +117,8 @@ contract Staking {
         if (compareStrings(stakes[msg.sender][idStake].stake.token, "ETH")){
             payable(msg.sender).transfer(stakes[msg.sender][idStake].stake.amount);
         }
-        emit Unstaked(idStake, msg.sender, stakes[msg.sender][idStake].amount, stakes[msg.sender][idStake].token);
+        emit Unstaked(idStake, msg.sender, stakes[msg.sender][idStake].stake.amount, stakes[msg.sender][idStake].stake.token);
         delete(stakes[msg.sender][idStake]);
-    }
-
-    function unstakeAll() public {
-        claim();
-        uint index = indexes[msg.sender][0];
-        while (index != 0 && stakes[msg.sender][index].stake.endAt <= block.timestamp) {
-            if (compareStrings(stakes[msg.sender][idStake].stake.token, "XXX")){
-                SafeERC20.safeTransfer(lpToken, msg.sender, stakes[msg.sender][idStake].stake.amount);
-            }
-            if (compareStrings(stakes[msg.sender][idStake].stake.token, "ETH")){
-                payable(msg.sender).transfer(stakes[msg.sender][idStake].stake.amount);
-            }
-            emit Unstaked(idStake, msg.sender, stakes[msg.sender][idStake].amount, stakes[msg.sender][idStake].token);
-            index = stakes[msg.sender][index].idNextStake;
-            delete(stakes[msg.sender][idStake]);
-        }
-        if (index == 0) {
-            indexes[msg.sender][1] = 0;
-        }
     }
 
     function changeTimeFreezing(uint _timeFreezing) public onlyDAO {

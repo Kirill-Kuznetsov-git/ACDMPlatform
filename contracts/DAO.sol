@@ -76,7 +76,15 @@ contract DAOVoting {
     function getBalance() public view returns(uint256) {
         uint returnValue = 0;
         for (uint i = 0; i < balanceTotal[msg.sender].length; i++) {
-            returnValue += staking.getStake(balanceTotal[msg.sender][i]).amount;
+            returnValue += staking.getStakeAmount(balanceTotal[msg.sender][i]);
+        }
+        return returnValue;
+    }
+
+    function getUserBalance(address user) internal view returns(uint256) {
+        uint returnValue = 0;
+        for (uint i = 0; i < balanceTotal[user].length; i++) {
+            returnValue += staking.getStakeAmount(balanceTotal[user][i]);
         }
         return returnValue;
     }
@@ -123,16 +131,16 @@ contract DAOVoting {
 
     function vote(uint256 votingId, bool voteValue) external {
         require(votingID.current() >= votingId, "such voting does not exist");
-        require(getBalance(msg.sender) != 0, "you don't froze enough tokens");
+        require(getUserBalance(msg.sender) != 0, "you don't froze enough tokens");
         require(block.timestamp < votings[votingId].endAt, "already ended");
         require(votings[votingId].participants[msg.sender] == 0, "you already voted");
 
         lastVoting[msg.sender] = votingId;
         firstNotUsedStake[msg.sender] = balanceTotal[msg.sender].length;
-        votings[votingId].participants[msg.sender] = getBalance(msg.sender);
-        votings[votingId].totalVotes += getBalance(msg.sender);
+        votings[votingId].participants[msg.sender] = getUserBalance(msg.sender);
+        votings[votingId].totalVotes += getUserBalance(msg.sender);
         if (voteValue) {
-            votings[votingId].positiveVotes += getBalance(msg.sender);
+            votings[votingId].positiveVotes += getUserBalance(msg.sender);
         }
     }
 
@@ -156,37 +164,45 @@ contract DAOVoting {
     }
 
     function withdraw() external {
-        if (voting[lastVoting[msg.sender]].endAt > block.timestamp && voting[lastVoting[msg.sender]].participants[msg.sender] < balanceTotal[msg.sender]) {
+        if (votings[lastVoting[msg.sender]].endAt > block.timestamp && votings[lastVoting[msg.sender]].participants[msg.sender] < getUserBalance(msg.sender)) {
             while (firstNotUsedStake[msg.sender] < balanceTotal[msg.sender].length) {
                 staking.unstake(balanceTotal[msg.sender][balanceTotal[msg.sender].length - 1]);
                 balanceTotal[msg.sender].pop();
             }
         }
-        if (voting[lastVoting[msg.sender]].endAt <= block.timestamp) {
+        // if last voting already end
+        if (votings[lastVoting[msg.sender]].endAt <= block.timestamp) {
             uint i = 0;
+            // try to unstake all stakes which already ended
             while (i < balanceTotal[msg.sender].length){
                 try staking.unstake(balanceTotal[msg.sender][i]) {
                 } catch Error(string memory reason){
-                    if (reason == "not ended yet") {
+                    if (compareStrings(reason, "not ended yet")) {
                         break;
                     }
                 }
             }
+            // if all stake was unstaked then delete all ids
             if (i == balanceTotal[msg.sender].length - 1) {
                 delete balanceTotal[msg.sender];
             }
             else {
                 uint ii = 0;
+                // move currect stakes to the start of array
                 while (i < balanceTotal[msg.sender].length){
                     balanceTotal[msg.sender][ii] = balanceTotal[msg.sender][i];
                     ii++;
                     i++;
                 }
+                // pop ids of stake which was unstaked
                 while (ii < balanceTotal[msg.sender].length) {
-                    balanceTotal[msg.sender][ii].pop();
-                    
+                    balanceTotal[msg.sender].pop();
                 }
             }
         }
+    }
+
+    function compareStrings(string memory a, string memory b) public pure returns (bool) {
+        return (keccak256(abi.encodePacked((a))) == keccak256(abi.encodePacked((b))));
     }
 }
