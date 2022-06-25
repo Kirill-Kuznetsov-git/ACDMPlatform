@@ -9,6 +9,9 @@ import "solidity-coverage";
 
 dotenv.config();
 
+import "./tasks/platform/registration";
+import "./tasks/platform/buyToken";
+import "./tasks/platform/mint";
 task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
   const accounts = await hre.ethers.getSigners();
 

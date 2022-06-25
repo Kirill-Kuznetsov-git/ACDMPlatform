@@ -1,14 +1,16 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "hardhat/console.sol";
+import "./uniswap/IUniswapV2Router02.sol";
 import "./ERC20/InterfaceERC20.sol";
-import "./DAO.sol";
+import "./interfaces/IDAO.sol";
 
 contract ACDMPlatform {
     enum RoundType { SELL, TRADE }
 
     address public owner;
+    address public wethAddress;
+    IUniswapV2Router02 public uniswapV2Router;
 
     // 5%
     uint public firstReferralSell = 5;
@@ -17,8 +19,7 @@ contract ACDMPlatform {
     // 2.5%
     uint public referralTrade = 25;
     
-    uint constant public DURATIONROUND = 3 days;
-    Round public currectRound;
+    Round public currentRound;
     uint public charity;
     // price of one ACDM wei in ETH wei
     uint public currectPrice;
@@ -27,7 +28,7 @@ contract ACDMPlatform {
     uint public tradeValue;
     InterfaceERC20 private token;
     InterfaceERC20 private tokenCharity;
-    DAOVoting private dao;
+    IDAO private dao;
     mapping(address => User) private users;
 
     // account address to value of trade(acdm wei tokens)
@@ -50,19 +51,24 @@ contract ACDMPlatform {
     }
 
     modifier SellRound(){
-        require(currectRound.round == RoundType.SELL, "not sell round");
-        require(currectRound.startAt + DURATIONROUND <= block.timestamp, "round already ended");
+        require(currentRound.round == RoundType.SELL, "not sell round");
+        require(currentRound.startAt + 3 days >= block.timestamp, "round already ended");
         _;
     }
 
     modifier TradeRound(){
-        require(currectRound.round == RoundType.TRADE, "not trade round");
-        require(currectRound.startAt + DURATIONROUND <= block.timestamp, "round already ended");
+        require(currentRound.round == RoundType.TRADE, "not trade round");
+        require(currentRound.startAt + 3 days >= block.timestamp, "round already ended");
+        _;
+    }
+
+    modifier onlyRegistrated() {
+        require(users[msg.sender].registrated, "not registrated");
         _;
     }
 
     modifier onlyOwner(){
-        require(msg.sender == owner, "not DAO");
+        require(msg.sender == owner, "not an owner");
         _;
     }
 
@@ -71,20 +77,29 @@ contract ACDMPlatform {
         _;
     }
 
-    constructor(InterfaceERC20 _token, InterfaceERC20 _tokenCharity){
+    constructor(InterfaceERC20 _token, InterfaceERC20 _tokenCharity, IUniswapV2Router02 _uniswapV2Router, address _wethAddress){
+        wethAddress = _wethAddress;
         owner = msg.sender;
+        uniswapV2Router = _uniswapV2Router;
         tokenCharity = _tokenCharity;
         token = _token;
+    }
+
+    function DURATIONROUND() external pure returns(uint256) {
+        return 3 days;
+    }
+
+    function startPatform() external onlyOwner {
         numberToken = 100000 * (10 ** token.decimals());
         token.mint(address(this), numberToken);
         currectPrice = 10 ** 7 wei;
-        currectRound.round = RoundType.SELL;
-        currectRound.startAt = block.timestamp;
+        currentRound.round = RoundType.SELL;
+        currentRound.startAt = block.timestamp;
         tradeValue = 0;
         charity = 0;
     }
 
-    function setDAO(DAOVoting _dao) public onlyOwner {
+    function setDAO(IDAO _dao) public onlyOwner {
         require(address(dao) == address(0), "already set");
         dao = _dao;
     }
@@ -102,10 +117,11 @@ contract ACDMPlatform {
         users[msg.sender].referralSecond = referralSecond;
     }
 
-    function buyToken(uint amount) public payable SellRound{
+    function buyToken(uint amount) public payable SellRound onlyRegistrated{
         require(msg.value >= amount * currectPrice, "not enough funds");
         uint actualAmount = min(amount, numberToken);
         uint refund = msg.value - currectPrice * actualAmount;
+        numberToken -= actualAmount;
         if (refund > 0) {
             payable(msg.sender).transfer(refund);
         }
@@ -115,27 +131,26 @@ contract ACDMPlatform {
         if (users[msg.sender].referralSecond != address(0)){
             payable(users[msg.sender].referralSecond).transfer((msg.value - refund) * secondReferralSell / 100);
         }
-        numberToken -= actualAmount;
         token.transfer(msg.sender, actualAmount);
         if (numberToken == 0){
             updateRound();
         }
     }
 
-    function setTrade(uint numberWeiToken, uint priceOneWeiToken) public TradeRound{
+    function setTrade(uint numberWeiToken, uint priceOneWeiToken) public TradeRound onlyRegistrated{
         require(token.balanceOf(msg.sender) >= numberWeiToken, "not enough tokens");
         token.transferFrom(msg.sender, address(this), numberWeiToken);
         trades[msg.sender].priceOneWeiToken = priceOneWeiToken;
         trades[msg.sender].numberWeiToken += numberWeiToken;
     }
 
-    function closeTrade() public TradeRound{
+    function closeTrade() public TradeRound onlyRegistrated{
         uint numberTokenClose = trades[msg.sender].numberWeiToken;
         trades[msg.sender].numberWeiToken = 0;
         token.transfer(msg.sender, numberTokenClose);
     }
 
-    function buyTrade(address seller, uint numberWeiToken) public payable TradeRound{
+    function buyTrade(address seller, uint numberWeiToken) public payable TradeRound onlyRegistrated{
         require(trades[seller].numberWeiToken >= numberWeiToken, "not enough tokens");
         uint actualNumberWeiToken = min(numberWeiToken, msg.value / trades[seller].priceOneWeiToken);
         uint refund = msg.value - actualNumberWeiToken * trades[seller].priceOneWeiToken;
@@ -146,33 +161,34 @@ contract ACDMPlatform {
         token.transfer(msg.sender, actualNumberWeiToken);
         uint payed = (msg.value - refund) * 95 / 100;
         payable(seller).transfer((msg.value - refund) * 95 / 100);
-        if (users[msg.sender].referralFirst != address(0)) {
-            payable(users[msg.sender].referralFirst).transfer((msg.value - refund) * referralTrade / 1000);
+        if (users[seller].referralFirst != address(0)) {
+            payable(users[seller].referralFirst).transfer((msg.value - refund) * referralTrade / 1000);
             payed += (msg.value - refund) * referralTrade / 1000;
         }
-        if (users[msg.sender].referralSecond != address(0)) {
-            payable(users[msg.sender].referralSecond).transfer((msg.value - refund) * referralTrade / 1000);
+        if (users[seller].referralSecond != address(0)) {
+            payable(users[seller].referralSecond).transfer((msg.value - refund) * referralTrade / 1000);
             payed += (msg.value - refund) * referralTrade / 1000;
         }
         charity += msg.value - payed;
     }
 
-    function updateRound() public {
-        require(currectRound.startAt + DURATIONROUND <= block.timestamp, "not ended yet");
-        if (currectRound.round == RoundType.TRADE) {
+    function updateRound() public onlyRegistrated{
+        require(currentRound.startAt + 3 days <= block.timestamp || (currentRound.round == RoundType.SELL && numberToken == 0), "not ended yet");
+        if (currentRound.round == RoundType.TRADE) {
             if (tradeValue == 0) {
-                currectRound.startAt = block.timestamp;
+                currentRound.startAt = block.timestamp;
             } else {
-                currectRound.round = RoundType.SELL;
-                currectRound.startAt = block.timestamp;
+                currentRound.round = RoundType.SELL;
+                currentRound.startAt = block.timestamp;
+                tradeValue = 0;
                 currectPrice = currectPrice * 103 / 100 + 4;
                 numberToken = tradeValue / currectPrice * token.decimals();
                 token.mint(address(this), tradeValue / currectPrice * token.decimals());
             }
         } else {
             token.burn(address(this), numberToken);
-            currectRound.round = RoundType.TRADE;
-            currectRound.startAt = block.timestamp;
+            currentRound.round = RoundType.TRADE;
+            currentRound.startAt = block.timestamp;
         }
     }
 
@@ -189,14 +205,22 @@ contract ACDMPlatform {
     }
     
     // 0 means give it to owner
-    // 1 means but XXX token
-    function spendCharity(uint res) public onlyDAO {
+    // 1 means buy and burn XXX token
+    function spendCharity(uint256 res) public onlyDAO {
         require(res == 0 || res == 1, "wrong value");
         if (res == 0) {
             payable(owner).transfer(charity);
-        }
-        if (res == 1) {
-            // buy XXX token
+        } else {
+            address[] memory pair = new address[](2);
+            pair[0] = wethAddress;
+            pair[1] = address(tokenCharity);
+            uint256[] memory actualAmount = uniswapV2Router.getAmountsOut(charity, pair);
+            IUniswapV2Router02(uniswapV2Router).swapExactETHForTokens{ value: charity }( 
+                actualAmount[1],
+                pair,
+                msg.sender,
+                block.timestamp
+            );
             tokenCharity.burn(address(this), tokenCharity.balanceOf(address(this)));
         }
         charity = 0;

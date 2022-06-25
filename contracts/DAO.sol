@@ -2,7 +2,9 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/Counters.sol";
-import "./Staking.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "./interfaces/IStaking.sol";
+import "./ERC20/InterfaceERC20.sol";
 
 
 contract DAOVoting {
@@ -10,7 +12,7 @@ contract DAOVoting {
     Counters.Counter private votingID;
     address private owner;
     InterfaceERC20 public token;
-    Staking public staking;
+    IStaking public staking;
     uint256 public minimumQuorum;
     uint256 public debatingPeriodDuration;
     mapping(address => bool) public isChairMan;
@@ -62,7 +64,7 @@ contract DAOVoting {
         _;
     }
 
-    constructor(address chairMan, InterfaceERC20 _token, Staking _staking, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) {
+    constructor(address chairMan, InterfaceERC20 _token, IStaking _staking, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) {
         owner = msg.sender;
         addChairMan(chairMan);
         addChairMan(owner);
@@ -161,7 +163,7 @@ contract DAOVoting {
     }
 
     function callFunction(address recipient, bytes memory signature) internal {
-        (bool success, ) = recipient.call(signature);
+        (bool success, ) = recipient.call(signature);   
         require(success, "ERROR call function");
     }
 
