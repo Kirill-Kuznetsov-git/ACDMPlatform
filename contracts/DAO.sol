@@ -114,6 +114,8 @@ contract DAOVoting {
 
     function deposit(uint256 funds) external {
         require(token.balanceOf(msg.sender) >= funds, "not enough funds");
+        SafeERC20.safeTransferFrom(token, msg.sender, address(this), funds);
+        token.approve(address(staking), funds);
         uint id = staking.stake(funds);
         balanceTotal[msg.sender].push(id);
     }
@@ -165,8 +167,11 @@ contract DAOVoting {
 
     function withdraw() external {
         if (votings[lastVoting[msg.sender]].endAt > block.timestamp && votings[lastVoting[msg.sender]].participants[msg.sender] < getUserBalance(msg.sender)) {
+            uint value;
             while (firstNotUsedStake[msg.sender] < balanceTotal[msg.sender].length) {
+                value = staking.getStakeAmount(balanceTotal[msg.sender][balanceTotal[msg.sender].length - 1]);
                 staking.unstake(balanceTotal[msg.sender][balanceTotal[msg.sender].length - 1]);
+                SafeERC20.safeTransfer(token, msg.sender, value);
                 balanceTotal[msg.sender].pop();
             }
         }
@@ -175,15 +180,17 @@ contract DAOVoting {
             uint i = 0;
             // try to unstake all stakes which already ended
             while (i < balanceTotal[msg.sender].length){
+                uint value = staking.getStakeAmount(balanceTotal[msg.sender][i]);
                 try staking.unstake(balanceTotal[msg.sender][i]) {
-                } catch Error(string memory reason){
-                    if (compareStrings(reason, "not ended yet")) {
-                        break;
-                    }
+                    i++;
+                    SafeERC20.safeTransfer(token, msg.sender, value);
+                } catch {
+                    // it means Error: "not ended yet"
+                    break;
                 }
             }
             // if all stake was unstaked then delete all ids
-            if (i == balanceTotal[msg.sender].length - 1) {
+            if (i == balanceTotal[msg.sender].length) {
                 delete balanceTotal[msg.sender];
             }
             else {
@@ -200,9 +207,5 @@ contract DAOVoting {
                 }
             }
         }
-    }
-
-    function compareStrings(string memory a, string memory b) public pure returns (bool) {
-        return (keccak256(abi.encodePacked((a))) == keccak256(abi.encodePacked((b))));
     }
 }

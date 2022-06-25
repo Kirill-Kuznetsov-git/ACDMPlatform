@@ -3,10 +3,14 @@ pragma solidity ^0.8.0;
 
 import "./ERC20/InterfaceERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "./DAO.sol";
+import "hardhat/console.sol";
 
 contract Staking {
+    address public owner;
     InterfaceERC20 public lpToken;
     InterfaceERC20 public rewardToken;
+    DAOVoting private dao;
     uint public timeFreezing = 10 minutes;
     uint public timeReward = 7 days;
     uint public procent = 3;
@@ -17,9 +21,6 @@ contract Staking {
     // Second index is id of last stake
     mapping(address => uint[2]) private indexes;
     
-    address private owner;
-    mapping(address => bool) public isDAO;
-
     event Rewarded(address account, uint256 amount);
     event Staked(uint256 stakeId, address account, uint256 amount, string token);
     event Unstaked(uint256 stakeId, address account, uint256 amount, string token);
@@ -30,7 +31,7 @@ contract Staking {
     }
 
     modifier onlyDAO(){
-        require(isDAO[msg.sender], "not a DAO");
+        require(address(dao) == msg.sender, "not a DAO");
         _;
     }
 
@@ -55,19 +56,24 @@ contract Staking {
         owner = msg.sender;
     }
 
-    function getStakeAmount(uint256 id) view public returns(uint) {
+    function setDAO(DAOVoting _dao) public onlyOwner {
+        require(address(dao) == address(0), "already set");
+        dao = _dao;
+    }
+
+    function getStakeAmount(uint256 id) public view returns(uint) {
         return stakes[msg.sender][id].stake.amount;
     }
 
 
-    function stake(uint256 amount) public returns(uint256) {
+    function stake(uint256 amount) external returns(uint256) {
         require(amount > 0, "not enough funds");
         SafeERC20.safeTransferFrom(lpToken, msg.sender, address(this), amount);
         stake(amount, "XXX");
         return indexes[msg.sender][1];
     }
 
-    function stake() public payable returns(uint256) {
+    function stake() external payable returns(uint256) {
         require(msg.value > 0, "not enough funds");
         stake(msg.value, "ETH");
         return indexes[msg.sender][1];
@@ -99,7 +105,7 @@ contract Staking {
         emit Rewarded(msg.sender, valueReward);
     }
 
-    function unstake(uint256 idStake) public {
+    function unstake(uint256 idStake) external {
         require(stakes[msg.sender][idStake].stake.amount != 0, "such stake does not exist");
         require(stakes[msg.sender][idStake].stake.endAt <= block.timestamp, "not ended yet");
         claim();
@@ -125,7 +131,7 @@ contract Staking {
         timeFreezing = _timeFreezing;
     }
 
-    function compareStrings(string memory a, string memory b) public pure returns (bool) {
+    function compareStrings(string memory a, string memory b) internal pure returns (bool) {
         return (keccak256(abi.encodePacked((a))) == keccak256(abi.encodePacked((b))));
     }
 }

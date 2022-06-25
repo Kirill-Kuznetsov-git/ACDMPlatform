@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "hardhat/console.sol";
 import "./ERC20/InterfaceERC20.sol";
+import "./DAO.sol";
 
 contract ACDMPlatform {
     enum RoundType { SELL, TRADE }
@@ -15,10 +16,8 @@ contract ACDMPlatform {
     uint public secondReferralSell = 3;
     // 2.5%
     uint public referralTrade = 25;
-
-    mapping(address => bool) public isDAO;
     
-    uint constant public durationRound = 3 days;
+    uint constant public DURATIONROUND = 3 days;
     Round public currectRound;
     uint public charity;
     // price of one ACDM wei in ETH wei
@@ -28,6 +27,7 @@ contract ACDMPlatform {
     uint public tradeValue;
     InterfaceERC20 private token;
     InterfaceERC20 private tokenCharity;
+    DAOVoting private dao;
     mapping(address => User) private users;
 
     // account address to value of trade(acdm wei tokens)
@@ -51,18 +51,23 @@ contract ACDMPlatform {
 
     modifier SellRound(){
         require(currectRound.round == RoundType.SELL, "not sell round");
-        require(currectRound.startAt + durationRound <= block.timestamp, "round already ended");
+        require(currectRound.startAt + DURATIONROUND <= block.timestamp, "round already ended");
         _;
     }
 
     modifier TradeRound(){
         require(currectRound.round == RoundType.TRADE, "not trade round");
-        require(currectRound.startAt + durationRound <= block.timestamp, "round already ended");
+        require(currectRound.startAt + DURATIONROUND <= block.timestamp, "round already ended");
         _;
     }
 
-    modifier OnlyDAO(){
-        require(isDAO[msg.sender], "not DAO");
+    modifier onlyOwner(){
+        require(msg.sender == owner, "not DAO");
+        _;
+    }
+
+    modifier onlyDAO(){
+        require(msg.sender == address(dao), "not DAO");
         _;
     }
 
@@ -71,15 +76,21 @@ contract ACDMPlatform {
         tokenCharity = _tokenCharity;
         token = _token;
         numberToken = 100000 * (10 ** token.decimals());
+        token.mint(address(this), numberToken);
         currectPrice = 10 ** 7 wei;
         currectRound.round = RoundType.SELL;
         currectRound.startAt = block.timestamp;
         tradeValue = 0;
         charity = 0;
-        updateRound();
+    }
+
+    function setDAO(DAOVoting _dao) public onlyOwner {
+        require(address(dao) == address(0), "already set");
+        dao = _dao;
     }
 
     function registration(address referralFirst, address referralSecond) public {
+        require(!users[msg.sender].registrated, "already registrated");
         require(referralFirst == address(0) || users[referralFirst].registrated, "first referral not registrated");
         require(referralSecond == address(0) || users[referralSecond].registrated, "second referral not registrated");
         users[msg.sender].registrated = true;
@@ -93,7 +104,7 @@ contract ACDMPlatform {
 
     function buyToken(uint amount) public payable SellRound{
         require(msg.value >= amount * currectPrice, "not enough funds");
-        uint actualAmount = min(amount, token.balanceOf(address(this)));
+        uint actualAmount = min(amount, numberToken);
         uint refund = msg.value - currectPrice * actualAmount;
         if (refund > 0) {
             payable(msg.sender).transfer(refund);
@@ -147,7 +158,7 @@ contract ACDMPlatform {
     }
 
     function updateRound() public {
-        require(currectRound.startAt + durationRound <= block.timestamp, "not ended yet");
+        require(currectRound.startAt + DURATIONROUND <= block.timestamp, "not ended yet");
         if (currectRound.round == RoundType.TRADE) {
             if (tradeValue == 0) {
                 currectRound.startAt = block.timestamp;
@@ -155,6 +166,7 @@ contract ACDMPlatform {
                 currectRound.round = RoundType.SELL;
                 currectRound.startAt = block.timestamp;
                 currectPrice = currectPrice * 103 / 100 + 4;
+                numberToken = tradeValue / currectPrice * token.decimals();
                 token.mint(address(this), tradeValue / currectPrice * token.decimals());
             }
         } else {
@@ -164,21 +176,21 @@ contract ACDMPlatform {
         }
     }
 
-    function changeFirstReferralSell(uint newFirstReferralSell) public OnlyDAO {
+    function changeFirstReferralSell(uint newFirstReferralSell) public onlyDAO {
         firstReferralSell = newFirstReferralSell;
     }
 
-    function changeSecondReferralSell(uint newSecondReferralSell) public OnlyDAO {
+    function changeSecondReferralSell(uint newSecondReferralSell) public onlyDAO {
         secondReferralSell = newSecondReferralSell;
     }
 
-    function changeReferralTrade(uint newReferralTrade) public OnlyDAO {
+    function changeReferralTrade(uint newReferralTrade) public onlyDAO {
         referralTrade = newReferralTrade;
     }
     
     // 0 means give it to owner
     // 1 means but XXX token
-    function spendCharity(uint res) public OnlyDAO {
+    function spendCharity(uint res) public onlyDAO {
         require(res == 0 || res == 1, "wrong value");
         if (res == 0) {
             payable(owner).transfer(charity);
