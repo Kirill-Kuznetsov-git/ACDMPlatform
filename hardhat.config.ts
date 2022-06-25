@@ -11,7 +11,11 @@ dotenv.config();
 
 import "./tasks/platform/registration";
 import "./tasks/platform/buyToken";
-import "./tasks/platform/mint";
+import "./tasks/platform/buyTrade";
+import "./tasks/platform/closeTrade";
+import "./tasks/platform/setTrade";
+import "./tasks/platform/updateRound";
+
 task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
   const accounts = await hre.ethers.getSigners();
 
