@@ -25,7 +25,7 @@ describe("Stacking", function () {
         await staking.deployed() 
 
         const DAOFActory = new DAOVoting__factory(accounts[0]);
-        dao = await DAOFActory.deploy(await accounts[0].getAddress(), token.address, staking.address, 1, 1);
+        dao = await DAOFActory.deploy(await accounts[0].getAddress(), token.address, staking.address, 1, 60);
         await dao.deployed()
     })
 
@@ -81,10 +81,37 @@ describe("Stacking", function () {
         expect(await staking.getStakeAmount(1)).to.equal(0);
     })
 
+    async function addProposal() {
+        const jsonAbi = [    {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "_timeFreezing",
+                "type": "uint256"
+              }
+            ],
+            "name": "changeTimeFreezing",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        }];
+        const iface = new ethers.utils.Interface(jsonAbi);
+        const calldata = iface.encodeFunctionData('changeTimeFreezing', [5]);
+        const recipient = staking.address;
+        await dao.addProposal(calldata, recipient, "Change time freezing to 5 sec.");
+    }
+
     it("Change Time Freezing", async function() {
         await expect(staking.changeTimeFreezing(5)).to.be.revertedWith("not a DAO");
         await expect(staking.connect(accounts[1]).setDAO(dao.address)).to.be.revertedWith("not an owner");
         await staking.setDAO(dao.address);
         await expect(staking.setDAO(dao.address)).to.be.revertedWith("already set");
+        await addProposal();
+        await token.mint(await accounts[2].getAddress(), 100);
+        await token.connect(accounts[2]).approve(dao.address, 100);
+        await dao.connect(accounts[2]).deposit(100);
+        await dao.connect(accounts[2]).vote(0, true);
+        await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp +  (await dao.debatingPeriodDuration()).toNumber()]);
+        await dao.finishProposal(0);
     })
   });

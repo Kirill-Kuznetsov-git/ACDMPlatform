@@ -3,7 +3,7 @@ import "@nomiclabs/hardhat-waffle";
 import {getStaking, getSigner, catchEvent} from "../init";
 
 
-task("buyTrade", "Buy trade")
+task("stake", "Stake")
     .addParam("seller", "Address of seller")
     .addParam("amount", "Number of wei token")
     .addParam("token", "Name of token: XXX or ETH")

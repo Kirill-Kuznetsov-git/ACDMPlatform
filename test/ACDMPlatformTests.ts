@@ -188,25 +188,23 @@ describe("ACDMPlatform", function () {
         expect(await signer.getBalance()).to.gt(oldBalance);
     })
 
-    it("Burn charity", async function() {
-        await platform.registration(zeroAddress, zeroAddress);
-        await platform.connect(accounts[1]).registration(zeroAddress, zeroAddress);
-        await platform.buyToken(100000, {value: (await platform.currectPrice()).mul(100000)});
-        await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp +  (await platform.DURATIONROUND()).toNumber()]);
-        await platform.updateRound();
-        await tokenACDM.approve(platform.address, 100000);
-        await platform.setTrade(100000, await platform.currectPrice());
-        await platform.connect(accounts[1]).buyTrade(await signer.getAddress(), 100000, {value: (await platform.currectPrice()).mul(100000)});
-        const oldBalance = await signer.getBalance();
+    // it("Burn charity", async function() {
+    //     await platform.registration(zeroAddress, zeroAddress);
+    //     await platform.connect(accounts[1]).registration(zeroAddress, zeroAddress);
+    //     await platform.buyToken(100000, {value: (await platform.currectPrice()).mul(100000)});
+    //     await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp +  (await platform.DURATIONROUND()).toNumber()]);
+    //     await platform.updateRound();
+    //     await tokenACDM.approve(platform.address, 100000);
+    //     await platform.setTrade(100000, await platform.currectPrice());
+    //     await platform.connect(accounts[1]).buyTrade(await signer.getAddress(), 100000, {value: (await platform.currectPrice()).mul(100000)});
+    //     const oldBalance = await signer.getBalance();
 
-        await addProposal(1);
-        await tokenXXX.mint(await signer.getAddress(), 100);
-        await tokenXXX.approve(voting.address, 100);
-        await voting.deposit(100);
-        await voting.vote(0, true);
-        await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp +  (await voting.debatingPeriodDuration()).toNumber()]);
-        await voting.finishProposal(0);
-
-
-    })
+    //     await addProposal(1);
+    //     await tokenXXX.mint(await signer.getAddress(), 100);
+    //     await tokenXXX.approve(voting.address, 100);
+    //     await voting.deposit(100);
+    //     await voting.vote(0, true);
+    //     await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp +  (await voting.debatingPeriodDuration()).toNumber()]);
+    //     await voting.finishProposal(0);
+    // })
 });
