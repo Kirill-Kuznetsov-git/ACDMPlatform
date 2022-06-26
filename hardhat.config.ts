@@ -12,6 +12,8 @@ dotenv.config();
 import "./tasks/platform/platformImport";
 import "./tasks/staking/stakingImport";
 import "./tasks/voting/votingImport";
+import "./tasks/addLiquidity";
+import "./tasks/checkAllowance";
 
 task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
   const accounts = await hre.ethers.getSigners();

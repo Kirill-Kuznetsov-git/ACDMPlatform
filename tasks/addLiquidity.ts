@@ -1,10 +1,9 @@
 // import {task} from "hardhat/config";
 // import "@nomiclabs/hardhat-waffle";
-// import {getXXXToken, getSigner, catchEvent} from "../init";
-// import { BigNumber } from "ethers";
-// import { IUniswapV2Router02__factory } from "../../typechain/factories/IUniswapV2Router02__factory";
+// import {getXXXToken, getSigner, catchEvent} from "./init";
+// import { IUniswapV2Router02__factory } from "../typechain/factories/IUniswapV2Router02__factory";
 
-// task("mint", "Buy token during SELL round")
+// task("addLiquidity", "Add Liquidity to Uniswap")
 //     .setAction(async(taskArgs, hre) => {
 //         const token = await getXXXToken(hre);
 //         console.log(await token.allowance((await getSigner(hre)).address, process.env.UNISWAP_ROUTER_ADDRESS));
@@ -14,7 +13,7 @@
 //         const Factory = await hre.ethers.getContractFactory("IUniswapV2Router02", await getSigner(hre));
 //         const router02 = new hre.ethers.Contract(
 //             process.env.UNISWAP_ROUTER_ADDRESS as string,
-//             await Factory.abi,
+//             Factory.interface,
 //             await getSigner(hre)
 //         );
 
