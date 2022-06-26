@@ -2,6 +2,7 @@
 // import "@nomiclabs/hardhat-waffle";
 // import {getXXXToken, getSigner, catchEvent} from "./init";
 // import { IUniswapV2Router02__factory } from "../typechain/factories/IUniswapV2Router02__factory";
+// import IUniswapV2Router02 from "../abi/router2.json";
 
 // task("addLiquidity", "Add Liquidity to Uniswap")
 //     .setAction(async(taskArgs, hre) => {
