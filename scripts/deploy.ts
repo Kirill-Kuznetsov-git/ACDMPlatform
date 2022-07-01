@@ -1,4 +1,7 @@
 import { ethers } from "hardhat";
+import {whiteList} from "../whiteList.json";
+import { MerkleTree } from "merkletreejs";
+import keccak256 from "keccak256";
 
 async function main() {
   const accounts = await ethers.getSigners();
@@ -13,8 +16,12 @@ async function main() {
   await tokenACDM.deployed();
   console.log("tokenACDM deployed to:", tokenACDM.address);
 
+  
+  const leafNodes = whiteList.map((addr) => keccak256(addr));
+  const merkleTree = new MerkleTree(leafNodes, keccak256, { sortPairs: true });
+
   const stakingFactory = await ethers.getContractFactory("Staking");
-  const staking = await stakingFactory.deploy(tokenXXX.address, tokenXXX.address);
+  const staking = await stakingFactory.deploy(tokenXXX.address, tokenXXX.address, "0x".concat(merkleTree.getRoot().toString("hex")));
   await staking.deployed();
   console.log("Staking deployed to:", staking.address);
 
@@ -38,3 +45,4 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
+// root 0x26f967ec9de96cbff08e01de374f0f4aa0c4607da5148aa2f11a95c340fbabd3

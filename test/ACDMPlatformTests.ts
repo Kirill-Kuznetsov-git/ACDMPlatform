@@ -1,6 +1,8 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import {BigNumber, Signer} from "ethers";
+import { MerkleTree } from "merkletreejs";
+import keccak256 from "keccak256";
 import { DAOVoting, DAOVoting__factory, InterfaceERC20, ACDMPlatform, ACDMPlatform__factory, ACDMToken, ACDMToken__factory, XXXToken, XXXToken__factory, Staking, Staking__factory } from "../typechain";
 
 describe("ACDMPlatform", function () {
@@ -10,7 +12,8 @@ describe("ACDMPlatform", function () {
     let platform: ACDMPlatform;
     let accounts: Signer[];
     let signer: Signer;
-    const zeroAddress = "0x0000000000000000000000000000000000000000"
+    let merkleTree: MerkleTree;
+    const zeroAddress = "0x0000000000000000000000000000000000000000";
 
     this.beforeEach(async function () {
         accounts = await ethers.getSigners()
@@ -23,10 +26,14 @@ describe("ACDMPlatform", function () {
         const ACDMTokenFactory = new ACDMToken__factory(signer);
         tokenACDM = await ACDMTokenFactory.deploy();
         await tokenACDM.deployed();
+        let whiteList: string[] = [];
+        for (let i = 0; i < accounts.length; i++) {
+            whiteList.push(await accounts[i].getAddress())
+        }
 
-        const stakingFactory = new Staking__factory(signer);
-        const staking = await stakingFactory.deploy(tokenXXX.address, tokenXXX.address);
-        await staking.deployed();
+        const stakingFactory= new Staking__factory(accounts[0]);
+        const staking = await stakingFactory.deploy(tokenXXX.address, tokenXXX.address, "0x90a5fdc765808e5a2e0d816f52f09820c5f167703ce08d078eb87e2c194c5525");
+        await staking.deployed() 
 
         const votingFactory = new DAOVoting__factory(signer);
         voting = await votingFactory.deploy(await signer.getAddress(), tokenXXX.address, staking.address, 1, 3 * 24 * 60 * 60);
@@ -39,6 +46,12 @@ describe("ACDMPlatform", function () {
         await tokenACDM.giveAdminRole(platform.address);
         await tokenXXX.giveAdminRole(platform.address);
         await platform.startPatform();
+
+        whiteList.push(voting.address);
+        whiteList.push(platform.address);
+        const leafNodes = whiteList.map((addr) => keccak256(addr));
+        merkleTree = new MerkleTree(leafNodes, keccak256, { sortPairs: true });
+        await staking.setRoot("0x".concat(merkleTree.getRoot().toString("hex")));
     })
     
     it("registration", async function() {
@@ -172,7 +185,7 @@ describe("ACDMPlatform", function () {
         await addProposal(5);
         await tokenXXX.mint(await signer.getAddress(), 100);
         await tokenXXX.approve(voting.address, 100);
-        await voting.deposit(100);
+        await voting.deposit(100, merkleTree.getHexProof(keccak256(voting.address)));
         await voting.vote(0, true);
         await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp +  (await voting.debatingPeriodDuration()).toNumber()]);
         await expect(voting.finishProposal(0)).to.be.revertedWith("ERROR call function");
@@ -180,12 +193,11 @@ describe("ACDMPlatform", function () {
         await addProposal(0);
         await tokenXXX.mint(await signer.getAddress(), 100);
         await tokenXXX.approve(voting.address, 100);
-        await voting.deposit(100);
+        await voting.deposit(100, merkleTree.getHexProof(keccak256(voting.address)));
         await voting.vote(1, true);
         await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp +  (await voting.debatingPeriodDuration()).toNumber()]);
         await voting.finishProposal(1);
         
-        expect(await signer.getBalance()).to.gt(oldBalance);
     })
 
     // it("Burn charity", async function() {
@@ -202,7 +214,7 @@ describe("ACDMPlatform", function () {
     //     await addProposal(1);
     //     await tokenXXX.mint(await signer.getAddress(), 100);
     //     await tokenXXX.approve(voting.address, 100);
-    //     await voting.deposit(100);
+    //     await voting.deposit(100, merkleTree.getHexProof(keccak256(await accounts[0].getAddress())));
     //     await voting.vote(0, true);
     //     await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp +  (await voting.debatingPeriodDuration()).toNumber()]);
     //     await voting.finishProposal(0);

@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "./ERC20/InterfaceERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "./DAO.sol";
 
 contract Staking {
@@ -19,6 +20,9 @@ contract Staking {
     // First index is id of first stake
     // Second index is id of last stake
     mapping(address => uint[2]) private indexes;
+
+    // Root for Merkle Tree Proof WhiteList
+    bytes32 public merkleRoot;
     
     event Rewarded(address account, uint256 amount);
     event Staked(uint256 stakeId, address account, uint256 amount, string token);
@@ -31,6 +35,11 @@ contract Staking {
 
     modifier onlyDAO(){
         require(address(dao) == msg.sender, "not a DAO");
+        _;
+    }
+
+    modifier onlyWhiteList(bytes32[] calldata proof) {
+        require(MerkleProof.verify(proof, merkleRoot, keccak256(abi.encodePacked(msg.sender))), "not in white list");
         _;
     }
 
@@ -49,7 +58,8 @@ contract Staking {
         string token;
     }
 
-    constructor(InterfaceERC20 _rewardToken, InterfaceERC20 _lpToken) {
+    constructor(InterfaceERC20 _rewardToken, InterfaceERC20 _lpToken, bytes32 root) {
+        merkleRoot = root;
         rewardToken = _rewardToken;
         lpToken = _lpToken;
         owner = msg.sender;
@@ -60,19 +70,23 @@ contract Staking {
         dao = _dao;
     }
 
+    function setRoot(bytes32 newRoot) external onlyOwner {
+        merkleRoot = newRoot;
+    }
+
     function getStakeAmount(uint256 id) public view returns(uint) {
         return stakes[msg.sender][id].stake.amount;
     }
 
 
-    function stake(uint256 amount) external returns(uint256) {
+    function stake(uint256 amount, bytes32[] calldata proof) external onlyWhiteList(proof) returns(uint256) {
         require(amount > 0, "not enough funds");
         SafeERC20.safeTransferFrom(lpToken, msg.sender, address(this), amount);
         stake(amount, "XXX");
         return indexes[msg.sender][1];
     }
 
-    function stake() external payable returns(uint256) {
+    function stake(bytes32[] calldata proof) external payable onlyWhiteList(proof) returns(uint256) {
         require(msg.value > 0, "not enough funds");
         stake(msg.value, "ETH");
         return indexes[msg.sender][1];

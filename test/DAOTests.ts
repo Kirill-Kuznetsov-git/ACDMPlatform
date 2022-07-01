@@ -2,6 +2,8 @@ import { throws } from "assert";
 import { expect } from "chai";
 import { Signer } from "ethers";
 import { ethers } from "hardhat";
+import { MerkleTree } from "merkletreejs";
+import keccak256 from "keccak256";
 import { DAOVoting, InterfaceERC20, Staking, Staking__factory, XXXToken__factory, XXXToken, DAOVoting__factory } from "../typechain";
 
 describe("DAOVoting", function () {
@@ -11,6 +13,8 @@ describe("DAOVoting", function () {
     let voting1: DAOVoting;
     let accounts: Signer[];
     let signer: Signer;
+    let merkleTree: MerkleTree;
+
     this.beforeEach(async function () {
         accounts = await ethers.getSigners()
         signer = accounts[0]
@@ -19,8 +23,13 @@ describe("DAOVoting", function () {
         token = await XXXFactory.deploy()
         await token.deployed()
 
+        let whiteList: string[] = [];
+        for (let i = 0; i < accounts.length; i++) {
+            whiteList.push(await accounts[i].getAddress())
+        }
+        
         const stakingFactory = new Staking__factory(accounts[0]);
-        staking = await stakingFactory.deploy(token.address, token.address);
+        staking = await stakingFactory.deploy(token.address, token.address, "0x90a5fdc765808e5a2e0d816f52f09820c5f167703ce08d078eb87e2c194c5525");
         await staking.deployed() 
 
         const votingFactory = new DAOVoting__factory(accounts[0]);
@@ -30,6 +39,12 @@ describe("DAOVoting", function () {
 
         await voting.deployed();
         await voting1.deployed();
+
+        whiteList.push(voting.address);
+        whiteList.push(voting1.address);
+        const leafNodes = whiteList.map((addr) => keccak256(addr));
+        merkleTree = new MerkleTree(leafNodes, keccak256, { sortPairs: true });
+        await staking.setRoot("0x".concat(merkleTree.getRoot().toString("hex")));
     });
 
     it("addChairMan function", async function() {
@@ -74,10 +89,10 @@ describe("DAOVoting", function () {
     });
 
     it("deposit function", async function() {
-        await expect(voting.deposit(100)).to.be.revertedWith("not enough funds");
+        await expect(voting.deposit(100, merkleTree.getHexProof(keccak256(voting.address)))).to.be.revertedWith("not enough funds");
         await token.mint(await signer.getAddress(), 100);
         await token.approve(voting.address, 100);
-        await voting.connect(signer).deposit(50);
+        await voting.connect(signer).deposit(50, merkleTree.getHexProof(keccak256(voting.address)));
         expect(await voting.connect(signer).getBalance()).to.eq(50);
     })
 
@@ -117,7 +132,7 @@ describe("DAOVoting", function () {
             await token.connect(signer).mint(accounts[2].address, 100);
             await token.approve(voting.address, 100);
             await token.connect(accounts[2]).approve(voting.address, 100);
-            await voting.connect(accounts[2]).deposit(100);
+            await voting.connect(accounts[2]).deposit(100, merkleTree.getHexProof(keccak256(voting.address)));
 
             const fiveDays = 5 * 24 * 60 * 60;
             const blockNumBefore = await ethers.provider.getBlockNumber();
@@ -132,14 +147,14 @@ describe("DAOVoting", function () {
             const accounts = await ethers.getSigners();
             await token.connect(signer).mint(accounts[2].address, 100);
             await token.connect(accounts[2]).approve(voting.address, 100);
-            await voting.connect(accounts[2]).deposit(100);
+            await voting.connect(accounts[2]).deposit(100, merkleTree.getHexProof(keccak256(voting.address)));
             await voting.connect(accounts[2]).vote(0, true);
             expect(await voting.connect(accounts[2]).getFrozenBalance()).to.eq(100);
             await expect(voting.connect(accounts[2]).vote(0, true)).to.be.revertedWith("you already voted");
 
             await token.connect(signer).mint(accounts[3].address, 100);
             await token.connect(accounts[3]).approve(voting.address, 100);
-            await voting.connect(accounts[3]).deposit(100);
+            await voting.connect(accounts[3]).deposit(100, merkleTree.getHexProof(keccak256(voting.address)));
             await voting.connect(accounts[3]).vote(0, false);
         })
     })
@@ -188,13 +203,13 @@ describe("DAOVoting", function () {
             const accounts = await ethers.getSigners();
             await token.connect(signer).mint(accounts[2].address, 100);
             await token.connect(accounts[2]).approve(voting.address, 100);
-            await voting.connect(accounts[2]).deposit(100);
+            await voting.connect(accounts[2]).deposit(100, merkleTree.getHexProof(keccak256(voting.address)));
             await voting.connect(accounts[2]).vote(0, true);
             expect(await voting.connect(accounts[2]).getFrozenBalance()).to.eq(100);
 
             await token.connect(signer).mint(accounts[3].address, 100);
             await token.connect(accounts[3]).approve(voting.address, 100);
-            await voting.connect(accounts[3]).deposit(100);
+            await voting.connect(accounts[3]).deposit(100, merkleTree.getHexProof(keccak256(voting.address)));
             await voting.connect(accounts[3]).vote(0, true);
 
             const fiveDays = 5 * 24 * 60 * 60;
@@ -229,7 +244,7 @@ describe("DAOVoting", function () {
 
             await token.connect(signer).mint(accounts[2].address, 100);
             await token.connect(accounts[2]).approve(voting.address, 100);
-            await voting.connect(accounts[2]).deposit(100);
+            await voting.connect(accounts[2]).deposit(100, merkleTree.getHexProof(keccak256(voting.address)));
             await voting.connect(accounts[2]).vote(0, true);
             await voting.connect(accounts[2]).vote(1, true);
 
@@ -267,12 +282,12 @@ describe("DAOVoting", function () {
 
             await token.connect(signer).mint(accounts[2].address, 100);
             await token.connect(accounts[2]).approve(voting.address, 100);
-            await voting.connect(accounts[2]).deposit(100);
+            await voting.connect(accounts[2]).deposit(100, merkleTree.getHexProof(keccak256(voting.address)));
             await voting.connect(accounts[2]).vote(1, true);
 
             await token.connect(signer).mint(accounts[3].address, 100);
             await token.connect(accounts[3]).approve(voting.address, 100);
-            await voting.connect(accounts[3]).deposit(100);
+            await voting.connect(accounts[3]).deposit(100, merkleTree.getHexProof(keccak256(voting.address)));
             await voting.connect(accounts[3]).vote(1, true);
 
             const fiveDays = 5 * 24 * 60 * 60;
@@ -310,7 +325,7 @@ describe("DAOVoting", function () {
         await token.connect(signer).mint(accounts[2].address, 100);
         await token.connect(accounts[2]).approve(voting.address, 100);
         const old = await token.balanceOf(accounts[2].address);
-        await voting.connect(accounts[2]).deposit(100);
+        await voting.connect(accounts[2]).deposit(100, merkleTree.getHexProof(keccak256(voting.address)));
 
 
         await addProposal(voting);
@@ -331,10 +346,10 @@ describe("DAOVoting", function () {
         const accounts = await ethers.getSigners();
         await token.connect(signer).mint(accounts[2].address, 100);
         await token.connect(accounts[2]).approve(voting.address, 100);
-        await voting.connect(accounts[2]).deposit(50);
+        await voting.connect(accounts[2]).deposit(50, merkleTree.getHexProof(keccak256(voting.address)));
         await token.connect(signer).mint(accounts[3].address, 100);
         await token.connect(accounts[3]).approve(voting.address, 100);
-        await voting.connect(accounts[3]).deposit(50);
+        await voting.connect(accounts[3]).deposit(50, merkleTree.getHexProof(keccak256(voting.address)));
 
         await addProposal(voting);
         await voting.connect(accounts[2]).vote(0, true);
@@ -343,7 +358,7 @@ describe("DAOVoting", function () {
         await voting.finishProposal(0);
 
         await addProposal(voting);
-        await voting.connect(accounts[2]).deposit(50);
+        await voting.connect(accounts[2]).deposit(50, merkleTree.getHexProof(keccak256(voting.address)));
         await voting.connect(accounts[2]).vote(1, true);
         await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp + (await voting.debatingPeriodDuration()).toNumber()]);
         await voting.connect(accounts[2]).withdraw();
@@ -354,12 +369,12 @@ describe("DAOVoting", function () {
         const accounts = await ethers.getSigners();
         await token.connect(signer).mint(accounts[2].address, 100);
         await token.connect(accounts[2]).approve(voting.address, 100);
-        await voting.connect(accounts[2]).deposit(50);
+        await voting.connect(accounts[2]).deposit(50, merkleTree.getHexProof(keccak256(voting.address)));
 
         await addProposal(voting);
 
         await voting.connect(accounts[2]).vote(0, true);
-        await voting.connect(accounts[2]).deposit(50);
+        await voting.connect(accounts[2]).deposit(50, merkleTree.getHexProof(keccak256(voting.address)));
 
         await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp + (await staking.timeFreezing()).toNumber()]);
 
@@ -371,10 +386,20 @@ describe("DAOVoting", function () {
         const accounts = await ethers.getSigners();
         const votingFactory = new DAOVoting__factory(accounts[0]);
         const votingTmp = await votingFactory.deploy(await signer.getAddress(), token.address, staking.address, 2, 5);
+        let whiteList: string[] = [];
+        for (let i = 0; i < accounts.length; i++) {
+            whiteList.push(await accounts[i].getAddress())
+        }
+        whiteList.push(voting.address);
+        whiteList.push(voting1.address);
+        whiteList.push(votingTmp.address);
+        const leafNodes = whiteList.map((addr) => keccak256(addr));
+        merkleTree = new MerkleTree(leafNodes, keccak256, { sortPairs: true });
+        await staking.setRoot("0x".concat(merkleTree.getRoot().toString("hex")));
 
         await token.connect(signer).mint(accounts[2].address, 100);
         await token.connect(accounts[2]).approve(votingTmp.address, 100);
-        await votingTmp.connect(accounts[2]).deposit(100);
+        await votingTmp.connect(accounts[2]).deposit(100, merkleTree.getHexProof(keccak256(votingTmp.address)));
 
         await addProposal(votingTmp);
 

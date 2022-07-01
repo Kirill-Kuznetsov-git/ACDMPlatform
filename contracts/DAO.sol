@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IStaking.sol";
 import "./ERC20/InterfaceERC20.sol";
+import "hardhat/console.sol";
 
 
 contract DAOVoting {
@@ -114,11 +115,11 @@ contract DAOVoting {
         debatingPeriodDuration = newDebatingPeriodDuration;
     }
 
-    function deposit(uint256 funds) external {
+    function deposit(uint256 funds, bytes32[] memory merkleProof) external {
         require(token.balanceOf(msg.sender) >= funds, "not enough funds");
         SafeERC20.safeTransferFrom(token, msg.sender, address(this), funds);
         token.approve(address(staking), funds);
-        uint id = staking.stake(funds);
+        uint id = staking.stake(funds, merkleProof);
         balanceTotal[msg.sender].push(id);
     }
 

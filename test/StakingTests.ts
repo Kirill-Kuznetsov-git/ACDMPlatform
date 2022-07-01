@@ -1,5 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
+import keccak256 from "keccak256";
+import { MerkleTree } from "merkletreejs";
 import {BigNumber, Signer} from "ethers";
 import { Staking, Staking__factory, DAOVoting__factory, DAOVoting, XXXToken__factory, InterfaceERC20 } from "../typechain";
 
@@ -12,31 +14,41 @@ describe("Stacking", function () {
     let accounts: Signer[];
     let pair: string;
     let token: InterfaceERC20;
+    let merkleTree: MerkleTree;
   
     beforeEach(async function () {
         accounts = await ethers.getSigners()
+        let whiteList: string[] = [];
+        for (let i = 0; i < accounts.length; i++) {
+            whiteList.push(await accounts[i].getAddress())
+        }
 
         const XXXFactory = new XXXToken__factory(accounts[0])
         token = await XXXFactory.deploy()
         await token.deployed()
 
         const stakingFactory= new Staking__factory(accounts[0]);
-        staking = await stakingFactory.deploy(token.address, token.address);
+        staking = await stakingFactory.deploy(token.address, token.address, "0x90a5fdc765808e5a2e0d816f52f09820c5f167703ce08d078eb87e2c194c5525");
         await staking.deployed() 
 
         const DAOFActory = new DAOVoting__factory(accounts[0]);
         dao = await DAOFActory.deploy(await accounts[0].getAddress(), token.address, staking.address, 1, 60);
         await dao.deployed()
+
+        whiteList.push(dao.address);
+        const leafNodes = whiteList.map((addr) => keccak256(addr));
+        merkleTree = new MerkleTree(leafNodes, keccak256, { sortPairs: true });
+        await staking.setRoot("0x".concat(merkleTree.getRoot().toString("hex")));
     })
 
     async function stake() {
         await token.mint(await accounts[0].getAddress(), 5);
         await token.approve(staking.address, 5);
-        await staking["stake(uint256)"](5); 
+        await staking["stake(uint256,bytes32[])"](5, merkleTree.getHexProof(keccak256(await accounts[0].getAddress()))); 
     }
   
     it("Stake XXX", async function () {
-        await expect(staking["stake(uint256)"](0)).to.be.revertedWith("not enough funds");
+        await expect(staking["stake(uint256,bytes32[])"](0, merkleTree.getHexProof(keccak256(await accounts[0].getAddress())))).to.be.revertedWith("not enough funds");
         await stake();
         await stake();
         expect(await staking.getStakeAmount(1)).to.equal(5);
@@ -44,9 +56,9 @@ describe("Stacking", function () {
     });
 
     it("Stake ETH", async function() {
-        await expect(staking["stake()"]({value: ethers.utils.parseEther("0")})).to.be.revertedWith("not enough funds");
+        await expect(staking["stake(bytes32[])"](merkleTree.getHexProof(keccak256(await accounts[0].getAddress())), {value: ethers.utils.parseEther("0")})).to.be.revertedWith("not enough funds");
         let oldBalance: BigNumber = await accounts[0].getBalance();
-        await staking["stake()"]({value: ethers.utils.parseEther("0.0000000001")});
+        await staking["stake(bytes32[])"](merkleTree.getHexProof(keccak256(await accounts[0].getAddress())), {value: ethers.utils.parseEther("0.0000000001")});
         expect(await staking.getStakeAmount(1)).to.equal(10 ** 8);
         expect(await accounts[0].getBalance()).to.lt(oldBalance);
     })
@@ -71,8 +83,8 @@ describe("Stacking", function () {
     })
 
     it("Unstake ETH", async function () {
-        await staking["stake()"]({value: ethers.utils.parseEther("0.0000000001")});
-        await staking["stake()"]({value: ethers.utils.parseEther("0.0000000001")});
+        await staking["stake(bytes32[])"](merkleTree.getHexProof(keccak256(await accounts[0].getAddress())), {value: ethers.utils.parseEther("0.0000000001")});
+        await staking["stake(bytes32[])"](merkleTree.getHexProof(keccak256(await accounts[0].getAddress())), {value: ethers.utils.parseEther("0.0000000001")});
         await expect(staking.unstake(1)).to.be.revertedWith("not ended yet");
         await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp +  (await staking.timeFreezing()).toNumber()]);
         await staking.unstake(1);
@@ -109,7 +121,7 @@ describe("Stacking", function () {
         await addProposal();
         await token.mint(await accounts[2].getAddress(), 100);
         await token.connect(accounts[2]).approve(dao.address, 100);
-        await dao.connect(accounts[2]).deposit(100);
+        await dao.connect(accounts[2]).deposit(100, merkleTree.getHexProof(keccak256(dao.address)));
         await dao.connect(accounts[2]).vote(0, true);
         await ethers.provider.send('evm_mine', [(await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp +  (await dao.debatingPeriodDuration()).toNumber()]);
         await dao.finishProposal(0);
