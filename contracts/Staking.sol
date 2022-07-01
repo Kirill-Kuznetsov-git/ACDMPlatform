@@ -11,9 +11,9 @@ contract Staking {
     InterfaceERC20 public lpToken;
     InterfaceERC20 public rewardToken;
     DAOVoting private dao;
-    uint public timeFreezing = 10 minutes;
-    uint public timeReward = 7 days;
-    uint public procent = 3;
+    uint public timeFreezing;
+    uint public timeReward;
+    uint public procent;
     mapping(address => mapping(uint => StakeIndexed)) private stakes;
     
     // Two indexes
@@ -59,6 +59,9 @@ contract Staking {
     }
 
     constructor(InterfaceERC20 _rewardToken, InterfaceERC20 _lpToken, bytes32 root) {
+        timeFreezing = 10 minutes;
+        timeReward = 7 days;
+        procent = 3;
         merkleRoot = root;
         rewardToken = _rewardToken;
         lpToken = _lpToken;
