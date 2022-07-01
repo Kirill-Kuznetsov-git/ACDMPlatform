@@ -13,11 +13,11 @@ contract ACDMPlatform {
     IUniswapV2Router02 public uniswapV2Router;
 
     // 5%
-    uint public firstReferralSell = 5;
+    uint public firstReferralSell;
     // 3%
-    uint public secondReferralSell = 3;
+    uint public secondReferralSell;
     // 2.5%
-    uint public referralTrade = 25;
+    uint public referralTrade;
     
     Round public currentRound;
     uint public charity;
@@ -78,6 +78,9 @@ contract ACDMPlatform {
     }
 
     constructor(InterfaceERC20 _token, InterfaceERC20 _tokenCharity, IUniswapV2Router02 _uniswapV2Router, address _wethAddress){
+        firstReferralSell = 5;
+        secondReferralSell = 3;
+        referralTrade = 25;
         wethAddress = _wethAddress;
         owner = msg.sender;
         uniswapV2Router = _uniswapV2Router;
